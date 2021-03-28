@@ -1,0 +1,108 @@
+#This lammps script allows you to do the tensile simulation for MgZnCaSr BMG mechanical properties
+#developed by Prof. Shin-Pon Ju at NSYSU 2017/04/08
+#modified by Mr. Chen-Jia Yang at 4075-2 2017/10/11
+#include files:
+#1.NVTNPT.in
+#2. manipulate by perl 
+
+#output files:
+#1.00relax.dat --> check whether the initial relaxation is done.
+
+#modified on 11/28/2016
+
+#define parameters here
+log 5nmPtPd.log ## Perl
+variable jumpname index tension_5nmPtPd.in # for "jump" filename ==> Perl
+variable folder index 5nmPtPd
+variable samplepxx equal pxx
+variable samplepyy equal pyy
+variable samplepzz equal pzz
+variable currentT equal 300
+variable ts equal 0.001 # for units metal: 1fs 
+variable pdamp equal ${ts}*1000 
+
+shell mkdir ${folder}
+
+#INITIALIZATION
+
+units metal 
+dimension 3 
+boundary s s p 
+atom_style atomic 
+atom_modify map array
+# ---------- Create Atoms ---------------------
+
+read_data 5nmPtPd.lmp
+#***************
+#***************
+# ---------- Define Interatomic Potential ---------------------                                     
+pair_style meam/c
+pair_coeff * * ref.lib Pd Rh Co Ce Pt  Bestfitted_default_m14.meam Pd Rh Co Ce Pt                                              
+#---------------------------------------------
+############jump ${jumpname} npt2    ################
+
+neighbor 0.1 bin 
+neigh_modify delay 1 every 1 check yes 
+
+fix 5 all box/relax z 0.0 # make the stress in the tensile direction a little compressed for getting the ref. length by "Interpolation" for strain 
+min_style	  cg
+thermo 100
+thermo_style custom step pxx  pyy  pzz pe
+minimize 0 0 100000 100000
+unfix 5
+
+#run 0
+#change_box all boundary f f p
+#
+#fix 5 all box/relax z 0.0 # make the stress in the tensile direction a little compressed for getting the ref. length by "Interpolation" for strain 
+#min_style	  cg
+#thermo 1
+#thermo_style custom step pxx  pyy  pzz pe
+#minimize 0 0 2000 2000
+#unfix 5
+
+#****************
+write_data 5nmPtPd_minimized.data
+
+variable lz equal lz
+variable tmp equal "lz"
+variable L0 equal ${tmp}
+variable tenratio equal 0.001                 #######################
+variable strain equal "(lz - v_L0)/v_L0"
+variable p1 equal "v_strain"
+variable currentzlo equal zlo
+
+######## tensile simulation from here #######
+
+variable i loop 500 ##tension loop begin
+
+label tension_i
+
+variable zten equal ${L0}+(${tenratio}*${L0})*(${i}-1)+${currentzlo}
+change_box all z final ${currentzlo} ${zten} remap units box
+
+thermo 100
+thermo_style custom step pxx  pyy  pzz pe
+
+min_style	     cg
+minimize 0 0 5000 5000
+
+shell cd ${folder}
+
+variable pzzGPa equal -$(pzz)/10000
+
+#print "strain pzz" append Strain_Stress.dat screen no
+print "${strain} ${pzzGPa} $(pe)" append Strain_Stress.dat screen no
+###################################
+
+dump 1 all custom 1 00stress_${i}.cfg id type x y z 
+run 0
+undump 1
+shell cd ..
+next i
+jump ${jumpname} tension_i
+
+#next folderloop
+#jump ${jumpname} folder_loop
+
+print "Simulation done!!!"
